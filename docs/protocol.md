@@ -77,7 +77,7 @@ class AddProxy
     {
         return _connection.CallMethodAsync(
             CreateAddMessage(),
-            (in Message message, object? state) =>
+            (Message message, object? state) =>
             {
                 return message.GetBodyReader().ReadInt32();
             });
@@ -103,48 +103,44 @@ class AddProxy
 
 class AddImplementation : IMethodHandler
 {
+    private const string Interface = "org.example.Adder";
     public string Path => "/org/example/Adder";
 
-    public bool TryHandleMethod(Connection connection, in Message message)
+    bool RunMethodHandlerSynchronously(Message message) => true;
+
+    public ValueTask HandleMethodAsync(MethodContext context)
     {
-        string method = message.Member.ToString();
-        string sig = message.Signature.ToString();
-
-        switch ((method, sig))
+        var request = context.Request;
+        switch (request.InterfaceAsString)
         {
-            case ("Add", "ii"):
-                Add(connection, message);
-                return true;
+            case Interface:
+                switch ((request.MemberAsString, request.SignatureAsString))
+                {
+                    case ("Add", "ii"):
+                        var reader = message.GetBodyReader();
+                        int i = reader.ReadInt32();
+                        int j = reader.ReadInt32();
+                        return Add(connection, i, j);
+                }
+                break;
         }
-
-        return false;
+        return default;
     }
 
-    private void Add(Connection connection, in Message message)
+    private ValueTask Add(MethodContext context, int i, int j)
     {
-        var reader = message.GetBodyReader();
-
-        int i = reader.ReadInt32();
-        int j = reader.ReadInt32();
-
         int sum = i + j;
 
-        connection.TrySendMessage(CreateResponseMessage(connection, message, sum));
+        ReplyToAdd(context, sum);
 
-        static MessageBuffer CreateResponseMessage(Connection connection, in Message message, int sum)
-        {
-            using var writer = connection.GetMessageWriter();
+        return default;
+    }
 
-            writer.WriteMethodReturnHeader(
-                replySerial: message.Serial,
-                destination: message.Sender,
-                signature: "i"
-            );
-
-            writer.WriteInt32(sum);
-
-            return writer.CreateMessage();
-        }
+    private void ReplyToAdd(MethodContext context, int sum)
+    {
+        using var writer = connection.CreateReplyWriter("i");
+        writer.WriteInt32(sum);
+        context.Reply(writer.CreateMessage());
     }
 }
 ```

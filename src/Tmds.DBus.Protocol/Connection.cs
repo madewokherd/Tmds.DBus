@@ -1,13 +1,6 @@
 namespace Tmds.DBus.Protocol;
 
-public delegate T MessageValueReader<T>(in Message message, object? state);
-
-public interface IMethodHandler
-{
-    bool TryHandleMethod(Connection connection, in Message message);
-
-    string Path { get; }
-}
+public delegate T MessageValueReader<T>(Message message, object? state);
 
 public partial class Connection : IDisposable
 {
@@ -48,6 +41,14 @@ public partial class Connection : IDisposable
             throw new ArgumentNullException(nameof(connectionOptions));
 
         _connectionOptions = (ClientConnectionOptions)connectionOptions;
+    }
+
+    // For tests.
+    internal void Connect(IMessageStream stream)
+    {
+        _connection = new DBusConnection(this);
+        _connection.Connect(stream);
+        _state = ConnectionState.Connected;
     }
 
     public async ValueTask ConnectAsync()
@@ -105,7 +106,7 @@ public partial class Connection : IDisposable
             {
                 ThrowHelper.ThrowIfDisposed(_disposed, this);
 
-                if (_connection == connection)
+                if (_connection == connection && _state == ConnectionState.Connecting)
                 {
                     _connectingTask = null;
                     _connectCts = null;
@@ -123,9 +124,18 @@ public partial class Connection : IDisposable
         {
             Disconnect(exception, connection);
 
+            // Prefer throwing ObjectDisposedException.
             ThrowHelper.ThrowIfDisposed(_disposed, this);
 
-            throw;
+            // Throw DisconnectedException or ConnectException.
+            if (exception is DisconnectedException || exception is ConnectException)
+            {
+                throw;
+            }
+            else
+            {
+                throw new ConnectException(exception.Message, exception);
+            }
         }
     }
 
@@ -249,7 +259,7 @@ public partial class Connection : IDisposable
         return newConnection;
     }
 
-    public MessageWriter GetMessageWriter() => new MessageWriter(MessagePool.Shared.Rent(), GetNextSerial());
+    public MessageWriter GetMessageWriter() => new MessageWriter(MessageBufferPool.Shared, GetNextSerial());
 
     public bool TrySendMessage(MessageBuffer message)
     {

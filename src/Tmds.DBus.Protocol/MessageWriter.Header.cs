@@ -88,7 +88,7 @@ public ref partial struct MessageWriter
 
     public void WriteError(
         uint replySerial,
-        Utf8Span destination = default,
+        ReadOnlySpan<byte> destination = default,
         string? errorName = null,
         string? errorMsg = null)
     {
